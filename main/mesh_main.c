@@ -16,6 +16,7 @@
 
 #include "legacy_proto.h"
 #include "ds18b20_node.h"
+#include "tds_node.h"
 
 // if (ds18b20_node_has_value()) {
 //     float t = ds18b20_node_get_last();
@@ -265,6 +266,7 @@ static esp_err_t mesh_comm_start(void)
 		xTaskCreate(mesh_rx_task, "mesh_rx", 4096, NULL, 5, NULL);
         xTaskCreate(stack_monitor_task, "stack_mon", 4096, NULL, 3, NULL);
 		xTaskCreate(ds18b20_node_task,"ds18b20",4096,NULL,5,NULL);
+		tds_node_start_task(5);
 	}
 	return ESP_OK;
 }
@@ -379,7 +381,6 @@ static void mesh_event_handler(void *arg,
 		         "<MESH_EVENT_PARENT_DISCONNECTED> reason:%d",
 		         disc->reason);
 		is_mesh_connected = false;
-		//mesh_disconnected_indicator();
 		mesh_layer = esp_mesh_get_layer();
 	}
 	break;
@@ -394,7 +395,6 @@ static void mesh_event_handler(void *arg,
 		         esp_mesh_is_root() ? "<ROOT>" :
 		         (mesh_layer == 2) ? "<layer2>" : "");
 		last_layer = mesh_layer;
-		//mesh_connected_indicator(mesh_layer);
 	}
 	break;
 
@@ -527,4 +527,7 @@ void app_main(void)
 
 	// Наприклад, датчик підключено до GPIO4
 	ESP_ERROR_CHECK(ds18b20_node_init(GPIO_NUM_4));
+    // TDS на GPIO34
+    tds_node_init();
+
 }
