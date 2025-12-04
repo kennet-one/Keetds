@@ -18,6 +18,7 @@
 #include "ds18b20_node.h"
 #include "tds_node.h"
 #include "stack_monitor.h"
+#include "legacy_root_sender.h"
 
 
 // if (ds18b20_node_has_value()) {
@@ -223,6 +224,7 @@ static esp_err_t mesh_comm_start(void)
         stack_monitor_start(3);
 		xTaskCreate(ds18b20_node_task,"ds18b20",4096,NULL,5,NULL);
 		tds_node_start_task(5);
+		ESP_ERROR_CHECK(legacy_root_sender_init(5));
 	}
 	return ESP_OK;
 }

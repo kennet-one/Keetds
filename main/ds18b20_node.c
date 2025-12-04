@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <string.h>
+#include <stdio.h>   // для snprintf
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -10,6 +11,8 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include "legacy_root_sender.h"
 
 static const char *TAG = "ds18b20";
 
@@ -313,6 +316,10 @@ void ds18b20_node_update(void)
 
 			// 3) Все ок – приймаємо
 			s_ds.last_temp = t;
+			
+			char msg[32];
+			snprintf(msg, sizeof(msg), "ttds%.2f", (double)t);
+			legacy_send_to_root(msg);
 
 			ESP_LOGI(TAG, "temperature = %.2f C", t);
 		}
