@@ -4,5 +4,5 @@ idf_component_register(SRCS "legacy_root_sender.c" "ds18b20_node.c" "mesh_main.c
                         "tds_node.c"
                         "stack_monitor.c"
                         "legacy_root_sender.c"
-                    PRIV_REQUIRES esp_wifi esp_driver_gpio esp_driver_ledc nvs_flash esp_adc driver 
+                    PRIV_REQUIRES esp_wifi esp_driver_gpio nvs_flash esp_adc driver 
                     INCLUDE_DIRS "." "include")

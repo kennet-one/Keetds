@@ -77,11 +77,6 @@ static void mesh_event_handler(void *arg,
                                int32_t event_id,
                                void *event_data);
 
-static void ip_event_handler(void *arg,
-                             esp_event_base_t event_base,
-                             int32_t event_id,
-                             void *event_data);
-
 static void mesh_rx_task(void *arg);
 static esp_err_t mesh_comm_start(void);
 
@@ -258,7 +253,6 @@ static void mesh_event_handler(void *arg,
 		         MAC2STR(id.addr),
 		         conn->duty);
 		last_layer = mesh_layer;
-		//mesh_connected_indicator(mesh_layer);
 		is_mesh_connected = true;
 
 		if (esp_mesh_is_root()) {
@@ -329,28 +323,11 @@ static void mesh_event_handler(void *arg,
 }
 
 /* -------------------------------------------------------------------------- */
-/*  IP events (коли root отримує IP від роутера)                              */
-/* -------------------------------------------------------------------------- */
-
-static void ip_event_handler(void *arg,
-                             esp_event_base_t event_base,
-                             int32_t event_id,
-                             void *event_data)
-{
-	ip_event_got_ip_t *ev = (ip_event_got_ip_t *)event_data;
-	ESP_LOGI(MESH_TAG,
-	         "<IP_EVENT_STA_GOT_IP> IP:" IPSTR,
-	         IP2STR(&ev->ip_info.ip));
-}
-
-/* -------------------------------------------------------------------------- */
 /*  app_main – ініціалізація mesh + Wi-Fi                                     */
 /* -------------------------------------------------------------------------- */
 
 void app_main(void)
 {
-	//ESP_ERROR_CHECK(mesh_light_init());   // якщо не треба LED – можна забрати
-
 	ESP_ERROR_CHECK(nvs_flash_init());
 	ESP_ERROR_CHECK(esp_netif_init());
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -362,9 +339,6 @@ void app_main(void)
 	// Wi-Fi
 	wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
 	ESP_ERROR_CHECK(esp_wifi_init(&wifi_cfg));
-	ESP_ERROR_CHECK(
-	    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-	                               &ip_event_handler, NULL));
 	ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
 	ESP_ERROR_CHECK(esp_wifi_start());
 
