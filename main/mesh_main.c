@@ -19,7 +19,9 @@
 #include "tds_node.h"
 #include "stack_monitor.h"
 #include "legacy_root_sender.h"
-
+#include "log_time_vprintf.h"
+#include "mesh_proto.h"
+#include "mesh_time_sync.h"
 
 /* -------------------------------------------------------------------------- */
 /*  Константи / глобальні змінні                                              */
@@ -53,20 +55,6 @@ static esp_netif_t *netif_sta       = NULL;
  *  src_mac  - MAC відправника
  *  payload  - невеликий текст (рядок з '\0' в кінці)
  */
-
-typedef struct __attribute__((packed)) {
-	uint8_t  magic;
-	uint8_t  version;
-	uint8_t  type;
-	uint8_t  reserved;
-	uint32_t counter;
-	uint8_t  src_mac[6];
-	char     payload[32];
-} mesh_packet_t;
-
-#define MESH_PKT_MAGIC   0xA5
-#define MESH_PKT_VERSION 1
-#define MESH_PKT_TYPE_TEXT 1
 
 /* -------------------------------------------------------------------------- */
 /*  Прототипи                                                                 */
@@ -118,6 +106,12 @@ static void mesh_rx_task(void *arg)
 			         MAC2STR(from.addr));
 			continue;
 		}
+		
+		if (pkt.type == MESH_TIME_SYNC_TYPE_TIME) {
+			mesh_time_sync_handle_rx(&pkt, data.size);
+			continue;
+		}
+
 
 		if (pkt.type == MESH_PKT_TYPE_TEXT) {
 			// Гарантуємо, що payload закінчується '\0'
@@ -327,7 +321,7 @@ static void mesh_event_handler(void *arg,
 /* -------------------------------------------------------------------------- */
 
 void app_main(void)
-{
+{	
 	ESP_ERROR_CHECK(nvs_flash_init());
 	ESP_ERROR_CHECK(esp_netif_init());
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -398,5 +392,7 @@ void app_main(void)
 	ESP_ERROR_CHECK(ds18b20_node_init(GPIO_NUM_4));
     // TDS на GPIO34
     tds_node_init();
+	mesh_time_sync_init();
+	log_time_vprintf_start();
 
 }
