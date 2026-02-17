@@ -6,6 +6,9 @@
 
 #include "esp_log.h"
 #include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
+
 
 #include "ds18b20_node.h"   // ds18b20_node_has_value(), ds18b20_node_get_last()
 #include "tds_node.h"
@@ -23,7 +26,7 @@ static const char *TAG = "tds_node";
 
 /* Константи з Arduino-коду */
 static const float VREF     = 3.3f;     // опорна напруга
-static const float TDS_K    = 500.0f;   // грубий коеф. для "псевдо ppm"
+static const float TDS_K    = 595.0f;   // коеф для ppm
 static const float TDS_BASE = 180.0f;   // базова вода
 static const float ALPHA_T  = 0.02f;    // 2%/°C для температурної компенсації
 
@@ -53,6 +56,8 @@ static float s_last_temp_used   = NAN;
 
 /* хендл нового oneshot-драйвера */
 static adc_oneshot_unit_handle_t s_adc_handle = NULL;
+static adc_cali_handle_t	s_adc_cali = NULL;
+static bool					s_adc_cal_ok = false;
 
 /* -------------------------------------------------------------------------- */
 /*  Геттери                                                                    */
@@ -82,6 +87,51 @@ float tds_node_get_last_temp_used(void)
 /*  Ініціалізація ADC oneshot                                                 */
 /* -------------------------------------------------------------------------- */
 
+static void tds_adc_try_init_calibration(adc_atten_t atten, adc_bitwidth_t bitwidth)
+{
+	s_adc_cali = NULL;
+	s_adc_cal_ok = false;
+
+	#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+	{
+		adc_cali_curve_fitting_config_t cal_cfg =
+		{
+			.unit_id = TDS_ADC_UNIT,
+			.atten = atten,
+			.bitwidth = bitwidth,
+		};
+
+		if(adc_cali_create_scheme_curve_fitting(&cal_cfg, &s_adc_cali) == ESP_OK)
+		{
+			s_adc_cal_ok = true;
+			ESP_LOGI(TAG, "ADC calibration: curve fitting OK");
+			return;
+		}
+	}
+	#endif
+
+	#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+	{
+		adc_cali_line_fitting_config_t cal_cfg =
+		{
+			.unit_id = TDS_ADC_UNIT,
+			.atten = atten,
+			.bitwidth = bitwidth,
+		};
+
+		if(adc_cali_create_scheme_line_fitting(&cal_cfg, &s_adc_cali) == ESP_OK)
+		{
+			s_adc_cal_ok = true;
+			ESP_LOGI(TAG, "ADC calibration: line fitting OK");
+			return;
+		}
+	}
+	#endif
+
+	ESP_LOGW(TAG, "ADC calibration not available -> rough raw->V mapping");
+}
+
+
 void tds_node_init(void)
 {
     if (s_inited) {
@@ -96,12 +146,17 @@ void tds_node_init(void)
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &s_adc_handle));
 
     /* 2) Налаштовуємо канал (бітність і атенюацію) */
-    adc_oneshot_chan_cfg_t chan_cfg = {
-        .bitwidth = ADC_BITWIDTH_DEFAULT,   // 12 біт за замовченням
-        .atten    = ADC_ATTEN_DB_12,        // ~3.3V+ діапазон, сучасний варіант
-    };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(
-        s_adc_handle, TDS_ADC_CHANNEL, &chan_cfg));
+	adc_oneshot_chan_cfg_t chan_cfg =
+	{
+		.bitwidth = ADC_BITWIDTH_12,
+		.atten    = ADC_ATTEN_DB_11,
+	};
+
+	ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, TDS_ADC_CHANNEL, &chan_cfg));
+
+	tds_adc_try_init_calibration(chan_cfg.atten, chan_cfg.bitwidth);
+	ESP_LOGI(TAG, "ADC cal=%s", s_adc_cal_ok ? "YES" : "NO");
+
 
     s_inited = true;
     ESP_LOGI(TAG, "TDS node init done (GPIO%d, unit=%d, ch=%d)",
@@ -125,24 +180,44 @@ static void tds_node_task(void *arg)
             continue;
         }
 
-        int sum = 0;
+        int sum_raw = 0;
+        int raw_cnt = 0;
+
+        int sum_mv = 0;
+        int mv_cnt = 0;
 
         for (int i = 0; i < TDS_SAMPLES; ++i) {
             int raw = 0;
-            esp_err_t err = adc_oneshot_read(s_adc_handle,
-                                             TDS_ADC_CHANNEL,
-                                             &raw);
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "adc_oneshot_read failed: 0x%x", err);
-                // все одно пробуємо продовжувати набирати суму
+            esp_err_t err = adc_oneshot_read(s_adc_handle, TDS_ADC_CHANNEL, &raw);
+
+            if (err == ESP_OK) {
+                sum_raw += raw;
+                raw_cnt++;
+
+                if (s_adc_cal_ok && s_adc_cali) {
+                    int mv = 0;
+                    if (adc_cali_raw_to_voltage(s_adc_cali, raw, &mv) == ESP_OK) {
+                        sum_mv += mv;
+                        mv_cnt++;
+                    }
+                }
             } else {
-                sum += raw;
+                ESP_LOGE(TAG, "adc_oneshot_read failed: 0x%x", err);
             }
+
             vTaskDelay(pdMS_TO_TICKS(TDS_SAMPLE_INTERVAL_MS));
         }
 
-        int   avg_raw = sum / TDS_SAMPLES;
-        float voltage = (avg_raw / 4095.0f) * VREF;   // 12-бітова шкала
+        int avg_raw = (raw_cnt > 0) ? (sum_raw / raw_cnt) : 0;
+
+        float voltage = 0.0f;
+        if ((s_adc_cal_ok && s_adc_cali) && mv_cnt > 0) {
+            float avg_mv = (float)sum_mv / (float)mv_cnt;
+            voltage = avg_mv / 1000.0f;
+        } else {
+            voltage = (avg_raw / 4095.0f) * VREF; // fallback
+        }
+
         float tds_raw = voltage * TDS_K;
 
         float tds_broth = tds_raw - TDS_BASE;

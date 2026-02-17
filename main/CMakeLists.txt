@@ -1,4 +1,4 @@
-idf_component_register(SRCS "mesh_log_stream.c" "mesh_time_sync.c" "legacy_root_sender.c" "ds18b20_node.c" "mesh_main.c"
+idf_component_register(SRCS "mesh_main.c"
                         "legacy_proto.c"
                         "ds18b20_node.c"
                         "tds_node.c"
